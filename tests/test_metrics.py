@@ -88,7 +88,8 @@ def test_unhandled_error_returns_422_error_payload(client):
     body = response.json()
     assert body["status"] == "error"
     assert body["error_type"]
-    assert isinstance(body["trace"], list)
+    assert body["message"]
+    assert "trace" not in body
 
 
 def test_scores_are_logged(client, caplog):

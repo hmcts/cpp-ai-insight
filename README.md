@@ -35,7 +35,7 @@ Errors from `/bleu` and `/rouge` return `{"detail": "..."}`:
 | 422 | The body cannot be turned into rows (for example a plain string) |
 | 500 | The metric fails, for example when `response` or `reference` is missing, or returns no score |
 
-`/answerSimilarity` errors return 422 with `{"status": "error", "error_type": ..., "message": ..., "trace": [...]}`.
+`/answerSimilarity` errors return 422 with `{"status": "error", "error_type": ..., "message": ...}`. The traceback is written to the log, not returned.
 
 Logs are written to stdout as one JSON object per line.
 

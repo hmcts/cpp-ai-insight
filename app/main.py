@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import logging
 import os
-import traceback
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -22,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Catch all unhandled exceptions and return a JSON error response."""
+    """Catch all unhandled exceptions and return a JSON error response.
+
+    The traceback is logged, not returned, so stack traces are not exposed to callers.
+    """
     logger.error("Unhandled exception: %s", exc, exc_info=True)
     return JSONResponse(
         status_code=422,
@@ -30,7 +32,6 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
             "status": "error",
             "error_type": exc.__class__.__name__,
             "message": str(exc),
-            "trace": traceback.format_exc().splitlines()[-5:],
         },
     )
 
