@@ -87,7 +87,7 @@ GitHub Actions (`.github/workflows/`):
 | Workflow | Runs on | What it does |
 |---|---|---|
 | `ci.yml` | PRs and pushes to `main` | Installs `requirements-dev.txt`, runs the tests and pre-commit; builds the Docker image, starts it and runs `scripts/smoke-test.sh` against it |
-| `codeql.yml` | PRs and weekly | CodeQL security analysis (`security-extended`) of the Python code and the workflows |
+| `codeql.yml` | PRs, pushes to `main` and weekly | CodeQL security analysis (`security-extended`) of the Python code and the workflows |
 | `secrets-scanner.yml` | PRs and weekly | HMCTS secrets scanner (gitleaks) |
 
 The smoke test can also be run against any running instance: `scripts/smoke-test.sh http://localhost:4550`.

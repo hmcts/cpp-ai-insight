@@ -49,7 +49,7 @@ The service currently deployed is built from a separate copy of the code in `cpp
 
 ## CI
 
-`.github/workflows/ci.yml` runs on PRs and pushes to `main`: tests and pre-commit on Python 3.11, then a Docker build, container start and `scripts/smoke-test.sh` (health, `/bleu`, `/rouge`, the 400 for invalid JSON; not `/answerSimilarity`, which needs Azure). `codeql.yml` (Python and Actions, `security-extended`) and `secrets-scanner.yml` (HMCTS gitleaks; needs the `GITLEAKS_LICENSE` and `HMCTS_CP_GITLEAKS_REGEX_INTERNAL_URL` secrets) run on PRs and weekly. The workflows only build and test; nothing publishes an image yet.
+`.github/workflows/ci.yml` runs on PRs and pushes to `main`: tests and pre-commit on Python 3.11, then a Docker build, container start and `scripts/smoke-test.sh` (health, `/bleu`, `/rouge`, the 400 for invalid JSON; not `/answerSimilarity`, which needs Azure). `codeql.yml` (Python and Actions, `security-extended`) and `secrets-scanner.yml` (HMCTS gitleaks; needs the `GITLEAKS_LICENSE` and `HMCTS_CP_GITLEAKS_REGEX_INTERNAL_URL` secrets) run on PRs and weekly; CodeQL also runs on pushes to `main`. The workflows only build and test; nothing publishes an image yet.
 
 ## Testing
 
