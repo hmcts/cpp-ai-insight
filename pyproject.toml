@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools==84.0.0", "setuptools-scm==10.3.4"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hmcts-cpp-ai-insight"
+description = "FastAPI service that scores AI search answers with BLEU, ROUGE and answer similarity (ragas)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "HM Courts & Tribunals Service" }]
+# The version comes from the git tag (v1.0.0 -> 1.0.0); the runtime dependencies
+# come from requirements.txt, so Renovate keeps updating one file.
+dynamic = ["version", "dependencies"]
+
+[project.urls]
+Source = "https://github.com/hmcts/cpp-ai-insight"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools_scm]

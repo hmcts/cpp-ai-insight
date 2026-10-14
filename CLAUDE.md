@@ -26,12 +26,16 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 docker build -t cpp-ai-insight .
 docker run -p 4550:4550 -e AZURE_OPENAI_API_KEY=... cpp-ai-insight
 
+# Build the package (wheel and sdist in dist/; the version comes from the latest git tag)
+uv pip install --python .venv/bin/python -r requirements-build.txt
+.venv/bin/python -m build
+
 # Pre-commit hooks (whitespace, YAML/JSON checks, private-key detection)
 pre-commit install
 pre-commit run --all-files --show-diff-on-failure
 ```
 
-`requirements.txt` lists only runtime dependencies and is the only file the Docker image installs. Test and development tools go in `requirements-dev.txt`. Every direct dependency is pinned to an exact version, so each image build gets the same metric implementations; Renovate (`renovate.json`, approval through the dependency dashboard) proposes upgrades. Import a package directly only if it is listed (for example `datasets`, used by `app/data.py`), rather than relying on it arriving through ragas.
+`requirements.txt` lists only runtime dependencies. `pyproject.toml` reads it as the package's dependencies, so it is what the Docker image installs. Test and development tools go in `requirements-dev.txt`, and the packaging tools in `requirements-build.txt`. Every direct dependency is pinned to an exact version, so each image build gets the same metric implementations; Renovate (`renovate.json`, approval through the dependency dashboard) proposes upgrades. Import a package directly only if it is listed (for example `datasets`, used by `app/data.py`), rather than relying on it arriving through ragas.
 
 ## Architecture
 
@@ -49,7 +53,17 @@ The service currently deployed is built from a separate copy of the code in `cpp
 
 ## CI
 
-`.github/workflows/ci.yml` runs on PRs and pushes to `main`: tests and pre-commit on Python 3.11, then a Docker build, container start and `scripts/smoke-test.sh` (health, `/bleu`, `/rouge`, the 400 for invalid JSON; not `/answerSimilarity`, which needs Azure). `codeql.yml` (Python and Actions, `security-extended`) and `secrets-scanner.yml` (HMCTS gitleaks; needs the `GITLEAKS_LICENSE` and `HMCTS_CP_GITLEAKS_REGEX_INTERNAL_URL` secrets) run on PRs and weekly; CodeQL also runs on pushes to `main`. The workflows only build and test; nothing publishes an image yet.
+`.github/workflows/ci.yml` runs on PRs and pushes to `main`: tests and pre-commit on Python 3.11, then a Docker build, container start and `scripts/smoke-test.sh` (health, `/bleu`, `/rouge`, the 400 for invalid JSON; not `/answerSimilarity`, which needs Azure). `codeql.yml` (Python and Actions, `security-extended`) and `secrets-scanner.yml` (HMCTS gitleaks; needs the `GITLEAKS_LICENSE` and `HMCTS_CP_GITLEAKS_REGEX_INTERNAL_URL` secrets) run on PRs and weekly; CodeQL also runs on pushes to `main`. `publish.yml` builds the package on PRs and checks it (`twine check --strict`, installs the wheel and imports `app.main`).
+
+## Packaging and release
+
+The service is published as the Python package `hmcts-cpp-ai-insight` (`pyproject.toml`, setuptools). The wheel contains only the `app` package; the dependencies are the exact pins from `requirements.txt`. The version comes from the git tag through setuptools-scm, so nothing in the source holds a version.
+
+- **Release:** publish a GitHub Release with a tag like `v1.2.3` on `main`. `publish.yml` builds `1.2.3`, checks the wheel name matches the tag, and uploads the wheel to the `hmcts-lib` Azure Artifacts feed **as a Maven artefact**, `uk.gov.hmcts.cp:hmcts-cpp-ai-insight:1.2.3` (type `whl`), with `mvn deploy:deploy-file` and the org secrets `AZURE_DEVOPS_ARTIFACT_USERNAME`/`_TOKEN`. It writes the wheel's SHA-256 to the run summary. Nothing else publishes; merges to `main` do not.
+- **Why Maven:** the CPP Artifactory proxies only the Maven side of `hmcts-lib` (remote repository `dtspublicazureartifacts`); its PyPI repositories (`pypi-virtual` = `pypi-local` + public PyPI) do not include the Azure feed. If a PyPI remote for `hmcts-lib` is added later, publishing with `twine` and a plain `pip install` would be simpler.
+- **Deployed image:** the `cpp_ai_insight_api` image in `cpp-docker-images` (branch `cp-ai-insight`) downloads the wheel from `dtspublicazureartifacts`, checks its SHA-256 and installs it with `pip` (dependencies from PyPI). To release a change: publish a release here, then set `AI_INSIGHT_VERSION` and `AI_INSIGHT_SHA256` in `cpp_ai_insight_api.dockerfile` and bump the image `tag` in `metadata.json`.
+- **This repo's Dockerfile** builds the wheel from the working tree in a first stage and installs it, so CI smoke-tests the same artefact. The build context has no `.git`, so it versions the wheel from the `VERSION` build argument (default `0.0.0`).
+- A published version cannot be overwritten on the feed. To fix a bad release, publish a new version.
 
 ## Testing
 

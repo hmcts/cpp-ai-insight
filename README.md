@@ -89,14 +89,33 @@ GitHub Actions (`.github/workflows/`):
 | `ci.yml` | PRs and pushes to `main` | Installs `requirements-dev.txt`, runs the tests and pre-commit; builds the Docker image, starts it and runs `scripts/smoke-test.sh` against it |
 | `codeql.yml` | PRs, pushes to `main` and weekly | CodeQL security analysis (`security-extended`) of the Python code and the workflows |
 | `secrets-scanner.yml` | PRs and weekly | HMCTS secrets scanner (gitleaks) |
+| `publish.yml` | PRs and published releases | Builds and checks the Python package; on a release, uploads the wheel to Azure Artifacts (Maven) |
 
 The smoke test can also be run against any running instance: `scripts/smoke-test.sh http://localhost:4550`.
 
+## Packaging and release
+
+The service is packaged as a Python wheel, `hmcts-cpp-ai-insight`. A release uploads the wheel to the `hmcts-lib` Azure Artifacts feed as a Maven artefact, `uk.gov.hmcts.cp:hmcts-cpp-ai-insight:<version>` (type `whl`), because Artifactory proxies only the Maven side of that feed. The deployed image (`cpp_ai_insight_api` in `cpp-docker-images`) downloads the wheel through Artifactory and installs it with `pip`.
+
+To release:
+
+1. Publish a GitHub Release from `main` with a tag like `v1.2.3`. The `publish.yml` workflow builds version `1.2.3` from the tag, uploads it, and shows the wheel's SHA-256 in the run summary.
+2. In `cpp-docker-images` (branch `cp-ai-insight`), set `AI_INSIGHT_VERSION` and `AI_INSIGHT_SHA256` in `cpp_ai_insight_api.dockerfile` and bump the image `tag` in `metadata.json`, then run the Docker build pipeline.
+
+To build the package locally:
+
+```shell
+uv pip install --python .venv/bin/python -r requirements-build.txt
+.venv/bin/python -m build   # writes dist/*.whl and dist/*.tar.gz
+```
+
+The Dockerfile in this repo builds the wheel from the working tree and installs it, so the image runs the same artefact a release publishes.
+
 ## Dependencies
 
-`requirements.txt` holds the runtime dependencies (the only file the image installs) and `requirements-dev.txt` the test tools. All direct dependencies are pinned; Renovate proposes upgrades through its dependency dashboard. `langchain-community` must stay below 0.4 (ragas fails to import with 0.4).
+`requirements.txt` holds the runtime dependencies (`pyproject.toml` reads it as the package's dependencies) and `requirements-dev.txt` the test tools. All direct dependencies are pinned; Renovate proposes upgrades through its dependency dashboard. `langchain-community` must stay below 0.4 (ragas fails to import with 0.4).
 
-The service currently deployed is built from a copy of this code in `cpp-docker-images`. This repo keeps the same API, error responses and scores so it can replace that copy, using newer library versions.
+The service currently deployed is built from a copy of this code in `cpp-docker-images`. This repo keeps the same API and scores so it can replace that copy, using newer library versions; once the image installs the published package, that copy is removed.
 
 ## Contributing
 
