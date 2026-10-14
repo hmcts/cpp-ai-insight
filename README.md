@@ -89,18 +89,15 @@ GitHub Actions (`.github/workflows/`):
 | `ci.yml` | PRs and pushes to `main` | Installs `requirements-dev.txt`, runs the tests and pre-commit; builds the Docker image, starts it and runs `scripts/smoke-test.sh` against it |
 | `codeql.yml` | PRs, pushes to `main` and weekly | CodeQL security analysis (`security-extended`) of the Python code and the workflows |
 | `secrets-scanner.yml` | PRs and weekly | HMCTS secrets scanner (gitleaks) |
-| `publish.yml` | PRs and published releases | Builds and checks the Python package; on a release, uploads the wheel to Azure Artifacts (Maven) |
+| `publish.yml` | PRs and published releases | Builds and checks the Python package; on a release, triggers ADO pipeline 460 to build and push the image |
 
 The smoke test can also be run against any running instance: `scripts/smoke-test.sh http://localhost:4550`.
 
 ## Packaging and release
 
-The service is packaged as a Python wheel, `hmcts-cpp-ai-insight`. A release uploads the wheel to the `hmcts-lib` Azure Artifacts feed as a Maven artefact, `uk.gov.hmcts.cp:hmcts-cpp-ai-insight:<version>` (type `whl`), because Artifactory proxies only the Maven side of that feed. The deployed image (`cpp_ai_insight_api` in `cpp-docker-images`) downloads the wheel through Artifactory and installs it with `pip`.
+The service is packaged as a Python wheel, `hmcts-cpp-ai-insight`, and the Docker image installs that wheel.
 
-To release:
-
-1. Publish a GitHub Release from `main` with a tag like `v1.2.3`. The `publish.yml` workflow builds version `1.2.3` from the tag and uploads it.
-2. In `cpp-docker-images` (branch `cp-ai-insight`), set `AI_INSIGHT_VERSION` in `cpp_ai_insight_api.dockerfile` and bump the image `tag` in `metadata.json`, then run the Docker build pipeline.
+To release, publish a GitHub Release from `main` with a tag like `v1.2.3`. The `publish.yml` workflow checks the package, then triggers ADO pipeline 460 (`gh-artifact-to-acr` in `cpp-azure-devops-templates`). That pipeline checks out the tag, builds this repo's `Dockerfile` and pushes the image to the non-live ACR as `hmcts/cpp_ai_insight_api:1.2.3_<timestamp>`. Don't move or recreate a release tag: the tag is what the image is built from.
 
 To build the package locally:
 
@@ -109,7 +106,7 @@ uv pip install --python .venv/bin/python -r requirements-build.txt
 .venv/bin/python -m build   # writes dist/*.whl and dist/*.tar.gz
 ```
 
-The Dockerfile in this repo builds the wheel from the working tree and installs it, so the image runs the same artefact a release publishes.
+The Dockerfile builds the wheel from the source and installs it, so CI's smoke test runs the same image a release builds.
 
 ## Dependencies
 

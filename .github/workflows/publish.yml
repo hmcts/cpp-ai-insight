@@ -1,11 +1,9 @@
 name: Publish
 
-# Builds the package on every PR. A published GitHub Release also uploads the wheel to
-# the hmcts-lib Azure Artifacts feed as a Maven artefact,
-# uk.gov.hmcts.cp:hmcts-cpp-ai-insight:<version> (type whl). Artifactory proxies that
-# feed's Maven side only (remote repository dtspublicazureartifacts), not its PyPI side,
-# so the Docker image build in cpp-docker-images downloads the wheel from there.
-# The version is the release tag: v1.0.0 publishes 1.0.0.
+# Builds and checks the package on every PR. A published GitHub Release (tag vX.Y.Z)
+# also triggers ADO pipeline 460 (gh-artifact-to-acr in cpp-azure-devops-templates) in
+# its docker mode: it checks out the release tag, builds this repo's Dockerfile and
+# pushes the image to the non-live ACR as hmcts/cpp_ai_insight_api:X.Y.Z_<timestamp>.
 
 on:
   pull_request:
@@ -20,13 +18,13 @@ permissions:
 env:
   # Matches the Docker image (python:3.11-slim).
   PYTHON_VERSION: "3.11"
-  GROUP_ID: uk.gov.hmcts.cp
-  ARTIFACT_ID: hmcts-cpp-ai-insight
 
 jobs:
   package:
-    name: Build and publish package
+    name: Build package
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -40,6 +38,7 @@ jobs:
         run: pip install -r requirements-build.txt
 
       - name: Check the release tag
+        id: version
         if: github.event_name == 'release'
         env:
           TAG: ${{ github.event.release.tag_name }}
@@ -48,17 +47,18 @@ jobs:
             echo "Release tag '$TAG' must look like v1.2.3"
             exit 1
           fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: python -m build
 
       - name: Check the package
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           twine check --strict dist/*
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            ls "dist/hmcts_cpp_ai_insight-${TAG#v}-py3-none-any.whl"
+          if [[ -n "$VERSION" ]]; then
+            ls "dist/hmcts_cpp_ai_insight-${VERSION}-py3-none-any.whl"
           fi
           python -m venv /tmp/check
           /tmp/check/bin/pip install --quiet dist/*.whl
@@ -70,31 +70,29 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Publish the wheel to the hmcts-lib feed
-        if: github.event_name == 'release'
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-          FEED_USERNAME: ${{ secrets.AZURE_DEVOPS_ARTIFACT_USERNAME }}
-          FEED_TOKEN: ${{ secrets.AZURE_DEVOPS_ARTIFACT_TOKEN }}
-        run: |
-          version="${TAG#v}"
-          wheel="dist/hmcts_cpp_ai_insight-${version}-py3-none-any.whl"
-          # Credentials are read from the environment, so they never appear on a command line.
-          cat > "$RUNNER_TEMP/settings.xml" <<'XML'
-          <settings>
-            <servers>
-              <server>
-                <id>hmcts-lib</id>
-                <username>${env.FEED_USERNAME}</username>
-                <password>${env.FEED_TOKEN}</password>
-              </server>
-            </servers>
-          </settings>
-          XML
-          mvn --batch-mode --no-transfer-progress --settings "$RUNNER_TEMP/settings.xml" \
-            org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy-file \
-            -Dfile="$wheel" -DgroupId="$GROUP_ID" -DartifactId="$ARTIFACT_ID" \
-            -Dversion="$version" -Dpackaging=whl -DgeneratePom=true \
-            -DrepositoryId=hmcts-lib \
-            -Durl=https://pkgs.dev.azure.com/hmcts/Artifacts/_packaging/hmcts-lib/maven/v1
-          echo "Published $GROUP_ID:$ARTIFACT_ID:$version" >> "$GITHUB_STEP_SUMMARY"
+  image:
+    name: Build image (ADO pipeline 460)
+    needs: package
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ADO pipeline 460
+        uses: hmcts/trigger-ado-pipeline@5ded370558d366e7de23d69956a76e012220435d # v2
+        with:
+          pipeline_id: 460
+          ado_pat: ${{ secrets.HMCTS_CP_ADO_PAT }}
+          # GROUP_ID and ARTIFACT_ID are required by the pipeline but unused in docker mode.
+          # baseImage is pulled through the non-live ACR's cache.
+          template_parameters: >
+            {
+              "GROUP_ID": "uk.gov.hmcts.cp",
+              "ARTIFACT_ID": "cpp-ai-insight",
+              "ARTIFACT_VERSION": "${{ needs.package.outputs.version }}",
+              "TARGET_REPOSITORY": "${{ github.repository }}",
+              "artifactType": "docker",
+              "dockerfilePath": "Dockerfile",
+              "imageRepository": "hmcts/cpp_ai_insight_api",
+              "gitRef": "${{ github.event.release.tag_name }}",
+              "baseImage": "docker.io/library/python:3.11-slim",
+              "pushToLive": false
+            }

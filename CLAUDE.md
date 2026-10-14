@@ -57,13 +57,12 @@ The service currently deployed is built from a separate copy of the code in `cpp
 
 ## Packaging and release
 
-The service is published as the Python package `hmcts-cpp-ai-insight` (`pyproject.toml`, setuptools). The wheel contains only the `app` package; the dependencies are the exact pins from `requirements.txt`. The version comes from the git tag through setuptools-scm, so nothing in the source holds a version.
+The service is packaged as the Python wheel `hmcts-cpp-ai-insight` (`pyproject.toml`, setuptools). The wheel contains only the `app` package; the dependencies are the exact pins from `requirements.txt`. The version comes from the git tag through setuptools-scm, so nothing in the source holds a version.
 
-- **Release:** publish a GitHub Release with a tag like `v1.2.3` on `main`. `publish.yml` builds `1.2.3`, checks the wheel name matches the tag, and uploads the wheel to the `hmcts-lib` Azure Artifacts feed **as a Maven artefact**, `uk.gov.hmcts.cp:hmcts-cpp-ai-insight:1.2.3` (type `whl`), with `mvn deploy:deploy-file` and the org secrets `AZURE_DEVOPS_ARTIFACT_USERNAME`/`_TOKEN`. Nothing else publishes; merges to `main` do not.
-- **Why Maven:** the CPP Artifactory proxies only the Maven side of `hmcts-lib` (remote repository `dtspublicazureartifacts`); its PyPI repositories (`pypi-virtual` = `pypi-local` + public PyPI) do not include the Azure feed. If a PyPI remote for `hmcts-lib` is added later, publishing with `twine` and a plain `pip install` would be simpler.
-- **Deployed image:** the `cpp_ai_insight_api` image in `cpp-docker-images` (branch `cp-ai-insight`) downloads the wheel from `dtspublicazureartifacts` and installs it with `pip` (dependencies from PyPI). To release a change: publish a release here, then set `AI_INSIGHT_VERSION` in `cpp_ai_insight_api.dockerfile` and bump the image `tag` in `metadata.json`.
-- **This repo's Dockerfile** builds the wheel from the working tree in a first stage and installs it, so CI smoke-tests the same artefact. The build context has no `.git`, so it versions the wheel from the `VERSION` build argument (default `0.0.0`).
-- A published version cannot be overwritten on the feed. To fix a bad release, publish a new version.
+- **Release:** publish a GitHub Release with a tag like `v1.2.3` on `main`. `publish.yml` checks the tag format, builds the package and checks the wheel version matches the tag, then triggers **ADO pipeline 460** (`pipelines/gh-artifact-to-acr.yaml` in `cpp-azure-devops-templates`) with `hmcts/trigger-ado-pipeline` and the org secret `HMCTS_CP_ADO_PAT`. Merges to `main` don't release.
+- **Pipeline 460** runs in `artifactType: docker` mode: it clones this repo at the release tag (`gitRef`), builds `Dockerfile` with `BASE_IMAGE` set to the non-live ACR's cache of `docker.io/library/python:3.11-slim`, and pushes `hmcts/cpp_ai_insight_api:1.2.3_<UTC timestamp>` to the non-live ACR. `pushToLive` is `false`, so the image stays in the non-live ACR. The tag is the version: never move or recreate a `v*` tag. Nothing is uploaded to a package feed; the wheel exists only inside the image build.
+- **The Dockerfile** builds the wheel from the source in a first stage and installs it in the second, so CI smoke-tests the same image a release builds. Only selected files are copied (no `.git`), so the wheel inside the image is versioned from the `VERSION` build argument (default `0.0.0`); the image tag carries the real version.
+- The deployed service was built by `cpp-docker-images` (branch `cp-ai-insight`, `cpp_ai_insight_api.dockerfile`, image tags up to `1.8`) from a copy of this code. Releases from this repo replace that; the first is `v2.0.0`, so image versions keep increasing.
 
 ## Testing
 
