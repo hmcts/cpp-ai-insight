@@ -26,12 +26,16 @@ uv pip install --python .venv/bin/python -r requirements-dev.txt
 docker build -t cpp-ai-insight .
 docker run -p 4550:4550 -e AZURE_OPENAI_API_KEY=... cpp-ai-insight
 
+# Build the package (wheel and sdist in dist/; the version comes from the latest git tag)
+uv pip install --python .venv/bin/python -r requirements-build.txt
+.venv/bin/python -m build
+
 # Pre-commit hooks (whitespace, YAML/JSON checks, private-key detection)
 pre-commit install
 pre-commit run --all-files --show-diff-on-failure
 ```
 
-`requirements.txt` lists only runtime dependencies and is the only file the Docker image installs. Test and development tools go in `requirements-dev.txt`. Every direct dependency is pinned to an exact version, so each image build gets the same metric implementations; Renovate (`renovate.json`, approval through the dependency dashboard) proposes upgrades. Import a package directly only if it is listed (for example `datasets`, used by `app/data.py`), rather than relying on it arriving through ragas.
+`requirements.txt` lists only runtime dependencies. `pyproject.toml` reads it as the package's dependencies, so it is what the Docker image installs. Test and development tools go in `requirements-dev.txt`, and the packaging tools in `requirements-build.txt`. Every direct dependency is pinned to an exact version, so each image build gets the same metric implementations; Renovate (`renovate.json`, approval through the dependency dashboard) proposes upgrades. Import a package directly only if it is listed (for example `datasets`, used by `app/data.py`), rather than relying on it arriving through ragas.
 
 ## Architecture
 
@@ -49,7 +53,16 @@ The service currently deployed is built from a separate copy of the code in `cpp
 
 ## CI
 
-`.github/workflows/ci.yml` runs on PRs and pushes to `main`: tests and pre-commit on Python 3.11, then a Docker build, container start and `scripts/smoke-test.sh` (health, `/bleu`, `/rouge`, the 400 for invalid JSON; not `/answerSimilarity`, which needs Azure). `codeql.yml` (Python and Actions, `security-extended`) and `secrets-scanner.yml` (HMCTS gitleaks; needs the `GITLEAKS_LICENSE` and `HMCTS_CP_GITLEAKS_REGEX_INTERNAL_URL` secrets) run on PRs and weekly; CodeQL also runs on pushes to `main`. The workflows only build and test; nothing publishes an image yet.
+`.github/workflows/ci.yml` runs on PRs and pushes to `main`: tests and pre-commit on Python 3.11, then a Docker build, container start and `scripts/smoke-test.sh` (health, `/bleu`, `/rouge`, the 400 for invalid JSON; not `/answerSimilarity`, which needs Azure). `codeql.yml` (Python and Actions, `security-extended`) and `secrets-scanner.yml` (HMCTS gitleaks; needs the `GITLEAKS_LICENSE` and `HMCTS_CP_GITLEAKS_REGEX_INTERNAL_URL` secrets) run on PRs and weekly; CodeQL also runs on pushes to `main`. `publish.yml` builds the package on PRs and checks it (`twine check --strict`, installs the wheel and imports `app.main`).
+
+## Packaging and release
+
+The service is packaged as the Python wheel `hmcts-cpp-ai-insight` (`pyproject.toml`, setuptools). The wheel contains only the `app` package; the dependencies are the exact pins from `requirements.txt`. The version comes from the git tag through setuptools-scm, so nothing in the source holds a version.
+
+- **Release:** publish a GitHub Release with a tag like `v1.2.3` on `main`. `publish.yml` checks the tag format, builds the package and checks the wheel version matches the tag, then triggers **ADO pipeline 460** (`pipelines/gh-artifact-to-acr.yaml` in `cpp-azure-devops-templates`) with `hmcts/trigger-ado-pipeline` and the org secret `HMCTS_CP_ADO_PAT`. Merges to `main` don't release.
+- **Pipeline 460** runs in `artifactType: docker` mode: it clones this repo at the release tag (`gitRef`), builds `Dockerfile` with `BASE_IMAGE` set to the non-live ACR's cache of `docker.io/library/python:3.11-slim`, and pushes `hmcts/cpp_ai_insight_api:1.2.3_<UTC timestamp>` to the non-live ACR. `pushToLive` is `false`, so the image stays in the non-live ACR. The tag is the version: never move or recreate a `v*` tag. Nothing is uploaded to a package feed; the wheel exists only inside the image build.
+- **The Dockerfile** builds the wheel from the source in a first stage and installs it in the second, so CI smoke-tests the same image a release builds. Only selected files are copied (no `.git`), so the wheel inside the image is versioned from the `VERSION` build argument (default `0.0.0`); the image tag carries the real version.
+- The deployed service was built by `cpp-docker-images` (branch `cp-ai-insight`, `cpp_ai_insight_api.dockerfile`, image tags up to `1.8`) from a copy of this code. Releases from this repo replace that; the first is `v2.0.0`, so image versions keep increasing.
 
 ## Testing
 

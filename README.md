@@ -89,14 +89,30 @@ GitHub Actions (`.github/workflows/`):
 | `ci.yml` | PRs and pushes to `main` | Installs `requirements-dev.txt`, runs the tests and pre-commit; builds the Docker image, starts it and runs `scripts/smoke-test.sh` against it |
 | `codeql.yml` | PRs, pushes to `main` and weekly | CodeQL security analysis (`security-extended`) of the Python code and the workflows |
 | `secrets-scanner.yml` | PRs and weekly | HMCTS secrets scanner (gitleaks) |
+| `publish.yml` | PRs and published releases | Builds and checks the Python package; on a release, triggers ADO pipeline 460 to build and push the image |
 
 The smoke test can also be run against any running instance: `scripts/smoke-test.sh http://localhost:4550`.
 
+## Packaging and release
+
+The service is packaged as a Python wheel, `hmcts-cpp-ai-insight`, and the Docker image installs that wheel.
+
+To release, publish a GitHub Release from `main` with a tag like `v1.2.3`. The `publish.yml` workflow checks the package, then triggers ADO pipeline 460 (`gh-artifact-to-acr` in `cpp-azure-devops-templates`). That pipeline checks out the tag, builds this repo's `Dockerfile` and pushes the image to the non-live ACR as `hmcts/cpp_ai_insight_api:1.2.3_<timestamp>`. Don't move or recreate a release tag: the tag is what the image is built from.
+
+To build the package locally:
+
+```shell
+uv pip install --python .venv/bin/python -r requirements-build.txt
+.venv/bin/python -m build   # writes dist/*.whl and dist/*.tar.gz
+```
+
+The Dockerfile builds the wheel from the source and installs it, so CI's smoke test runs the same image a release builds.
+
 ## Dependencies
 
-`requirements.txt` holds the runtime dependencies (the only file the image installs) and `requirements-dev.txt` the test tools. All direct dependencies are pinned; Renovate proposes upgrades through its dependency dashboard. `langchain-community` must stay below 0.4 (ragas fails to import with 0.4).
+`requirements.txt` holds the runtime dependencies (`pyproject.toml` reads it as the package's dependencies) and `requirements-dev.txt` the test tools. All direct dependencies are pinned; Renovate proposes upgrades through its dependency dashboard. `langchain-community` must stay below 0.4 (ragas fails to import with 0.4).
 
-The service currently deployed is built from a copy of this code in `cpp-docker-images`. This repo keeps the same API, error responses and scores so it can replace that copy, using newer library versions.
+The service currently deployed is built from a copy of this code in `cpp-docker-images`. This repo keeps the same API and scores so it can replace that copy, using newer library versions; once the image installs the published package, that copy is removed.
 
 ## Contributing
 

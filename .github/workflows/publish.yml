@@ -1,0 +1,98 @@
+name: Publish
+
+# Builds and checks the package on every PR. A published GitHub Release (tag vX.Y.Z)
+# also triggers ADO pipeline 460 (gh-artifact-to-acr in cpp-azure-devops-templates) in
+# its docker mode: it checks out the release tag, builds this repo's Dockerfile and
+# pushes the image to the non-live ACR as hmcts/cpp_ai_insight_api:X.Y.Z_<timestamp>.
+
+on:
+  pull_request:
+    branches:
+      - main
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  # Matches the Docker image (python:3.11-slim).
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  package:
+    name: Build package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # setuptools-scm reads the version from the tags
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install -r requirements-build.txt
+
+      - name: Check the release tag
+        id: version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag '$TAG' must look like v1.2.3"
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: python -m build
+
+      - name: Check the package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          twine check --strict dist/*
+          if [[ -n "$VERSION" ]]; then
+            ls "dist/hmcts_cpp_ai_insight-${VERSION}-py3-none-any.whl"
+          fi
+          python -m venv /tmp/check
+          /tmp/check/bin/pip install --quiet dist/*.whl
+          /tmp/check/bin/python -c "import app.main"
+
+      - name: Upload build artefacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  image:
+    name: Build image (ADO pipeline 460)
+    needs: package
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ADO pipeline 460
+        uses: hmcts/trigger-ado-pipeline@5ded370558d366e7de23d69956a76e012220435d # v2
+        with:
+          pipeline_id: 460
+          ado_pat: ${{ secrets.HMCTS_CP_ADO_PAT }}
+          # GROUP_ID and ARTIFACT_ID are required by the pipeline but unused in docker mode.
+          # baseImage is pulled through the non-live ACR's cache.
+          template_parameters: >
+            {
+              "GROUP_ID": "uk.gov.hmcts.cp",
+              "ARTIFACT_ID": "cpp-ai-insight",
+              "ARTIFACT_VERSION": "${{ needs.package.outputs.version }}",
+              "TARGET_REPOSITORY": "${{ github.repository }}",
+              "artifactType": "docker",
+              "dockerfilePath": "Dockerfile",
+              "imageRepository": "hmcts/cpp_ai_insight_api",
+              "gitRef": "${{ github.event.release.tag_name }}",
+              "baseImage": "docker.io/library/python:3.11-slim",
+              "pushToLive": false
+            }

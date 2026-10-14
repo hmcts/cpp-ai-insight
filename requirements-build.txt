@@ -1,0 +1,3 @@
+# Tools to build and check the package (.github/workflows/publish.yml).
+build==1.6.1
+twine==7.0.0
