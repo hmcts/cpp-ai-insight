@@ -99,8 +99,8 @@ The service is packaged as a Python wheel, `hmcts-cpp-ai-insight`. A release upl
 
 To release:
 
-1. Publish a GitHub Release from `main` with a tag like `v1.2.3`. The `publish.yml` workflow builds version `1.2.3` from the tag, uploads it, and shows the wheel's SHA-256 in the run summary.
-2. In `cpp-docker-images` (branch `cp-ai-insight`), set `AI_INSIGHT_VERSION` and `AI_INSIGHT_SHA256` in `cpp_ai_insight_api.dockerfile` and bump the image `tag` in `metadata.json`, then run the Docker build pipeline.
+1. Publish a GitHub Release from `main` with a tag like `v1.2.3`. The `publish.yml` workflow builds version `1.2.3` from the tag and uploads it.
+2. In `cpp-docker-images` (branch `cp-ai-insight`), set `AI_INSIGHT_VERSION` in `cpp_ai_insight_api.dockerfile` and bump the image `tag` in `metadata.json`, then run the Docker build pipeline.
 
 To build the package locally:
 

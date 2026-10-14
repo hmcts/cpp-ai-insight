@@ -98,4 +98,3 @@ jobs:
             -DrepositoryId=hmcts-lib \
             -Durl=https://pkgs.dev.azure.com/hmcts/Artifacts/_packaging/hmcts-lib/maven/v1
           echo "Published $GROUP_ID:$ARTIFACT_ID:$version" >> "$GITHUB_STEP_SUMMARY"
-          echo "SHA-256 (for the cpp-docker-images Dockerfile): $(sha256sum "$wheel" | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
